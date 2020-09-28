@@ -135,7 +135,8 @@ purge(_Q) ->
 -spec policy_changed(amqqueue:amqqueue()) -> 'ok'.
 policy_changed(Q) ->
     Name = maps:get(name, amqqueue:get_type_state(Q)),
-    rabbit_stream_coordinator:policy_changed(Name).
+    _ = rabbit_stream_coordinator:policy_changed(Name),
+    ok.
 
 stat(_) ->
     {ok, 0, 0}.

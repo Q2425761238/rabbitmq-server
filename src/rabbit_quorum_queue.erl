@@ -855,7 +855,8 @@ maybe_delete_data_dir(UId) ->
 
 policy_changed(Q) ->
     QPid = amqqueue:get_pid(Q),
-    rabbit_fifo_client:update_machine_state(QPid, ra_machine_config(Q)).
+    _ = rabbit_fifo_client:update_machine_state(QPid, ra_machine_config(Q)),
+    ok.
 
 -spec cluster_state(Name :: atom()) -> 'down' | 'recovering' | 'running'.
 
