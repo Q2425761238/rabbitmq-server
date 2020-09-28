@@ -471,6 +471,7 @@ flow(Config) ->
     ok.
 
 test_queries(Config) ->
+    % ok = logger:set_primary_config(level, all),
     ClusterName = ?config(cluster_name, Config),
     ServerId = ?config(node_id, Config),
     ok = start_cluster(ClusterName, [ServerId]),
@@ -483,6 +484,11 @@ test_queries(Config) ->
                   Self ! ready,
                   receive stop -> ok end
           end),
+    receive
+        ready -> ok
+    after 5000 ->
+              exit(ready_timeout)
+    end,
     F0 = rabbit_fifo_client:init(ClusterName, [ServerId], 4),
     {ok, _} = rabbit_fifo_client:checkout(<<"tag">>, 1, #{}, F0),
     {ok, {_, Ready}, _} = ra:local_query(ServerId,
@@ -494,7 +500,7 @@ test_queries(Config) ->
     {ok, {_, Processes}, _} = ra:local_query(ServerId,
                                              fun rabbit_fifo:query_processes/1),
     ?assertEqual(2, length(Processes)),
-    P !  stop,
+    P ! stop,
     ra:stop_server(ServerId),
     ok.
 
