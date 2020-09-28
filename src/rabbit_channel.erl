@@ -1775,7 +1775,6 @@ consumer_monitor(ConsumerTag,
     QCons1 = maps:put(QRef, CTags1, QCons),
     State#ch{queue_consumers = QCons1}.
 
-
 handle_consuming_queue_down_or_eol(QRef, QName,
                                    State = #ch{queue_consumers = QCons}) ->
     ConsumerTags = case maps:find(QRef, QCons) of

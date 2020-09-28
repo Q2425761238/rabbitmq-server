@@ -95,9 +95,18 @@ init_per_multinode_group(Group, Config, NodeCount) ->
             % The broker is managed by {init,end}_per_testcase().
             Config1;
         _ ->
-            rabbit_ct_helpers:run_steps(Config1,
-              rabbit_ct_broker_helpers:setup_steps() ++
-              rabbit_ct_client_helpers:setup_steps())
+            Config2 = rabbit_ct_helpers:run_steps(
+                        Config1, rabbit_ct_broker_helpers:setup_steps() ++
+                                 rabbit_ct_client_helpers:setup_steps()),
+            EnableFF = rabbit_ct_broker_helpers:enable_feature_flag(
+                         Config2, user_limits),
+            case EnableFF of
+                ok ->
+                    Config2;
+                Skip ->
+                    end_per_group(Group, Config2),
+                    Skip
+            end
     end.
 
 end_per_group(cluster_rename, Config) ->
@@ -355,8 +364,12 @@ single_node_list_in_user(Config) ->
     set_up_user(Config, Username1),
     set_up_user(Config, Username2),
 
-    ?assertEqual(0, length(connections_in(Config, Username1))),
-    ?assertEqual(0, length(connections_in(Config, Username2))),
+    rabbit_ct_helpers:await_condition(
+    fun () ->
+        length(connections_in(Config, Username1)) =:= 0 andalso
+        length(connections_in(Config, Username2)) =:= 0
+    end),
+
     ?assertEqual(0, length(channels_in(Config, Username1))),
     ?assertEqual(0, length(channels_in(Config, Username2))),
 
@@ -365,9 +378,15 @@ single_node_list_in_user(Config) ->
     [#tracked_connection{username = Username1}] = connections_in(Config, Username1),
     [#tracked_channel{username = Username1}] = channels_in(Config, Username1),
     close_channels([Chan1]),
-    ?assertEqual(0, length(channels_in(Config, Username1))),
+    rabbit_ct_helpers:await_condition(
+        fun () ->
+            length(channels_in(Config, Username1)) =:= 0
+        end),
     close_connections([Conn1]),
-    ?assertEqual(0, length(connections_in(Config, Username1))),
+    rabbit_ct_helpers:await_condition(
+        fun () ->
+            length(connections_in(Config, Username1)) =:= 0
+        end),
 
     [Conn2] = open_connections(Config, [{0, Username2}]),
     [Chan2] = open_channels(Conn2, 1),
@@ -396,10 +415,16 @@ single_node_list_in_user(Config) ->
                       all_channels(Config))),
 
     close_channels([Chan2, Chan3, Chan5, Chan6]),
-    ?assertEqual(0, length(all_channels(Config))),
+    rabbit_ct_helpers:await_condition(
+        fun () ->
+            length(all_channels(Config)) =:= 0
+        end),
 
     close_connections([Conn2, Conn3, Conn5, Conn6]),
-    ?assertEqual(0, length(all_connections(Config))),
+    rabbit_ct_helpers:await_condition(
+        fun () ->
+            length(all_connections(Config)) =:= 0
+        end),
 
     rabbit_ct_broker_helpers:delete_user(Config, Username1),
     rabbit_ct_broker_helpers:delete_user(Config, Username2).
@@ -433,10 +458,10 @@ most_basic_cluster_connection_and_channel_count(Config) ->
     ?assertEqual(15, count_channels_of_user(Config, Username)),
 
     close_channels(Chans1 ++ Chans2 ++ Chans3),
-    ?assertEqual(0, count_channels_of_user(Config, Username)),
+    ?awaitMatch(0, count_channels_of_user(Config, Username), 60000),
 
     close_connections([Conn1, Conn2, Conn3]),
-    ?assertEqual(0, count_connections_of_user(Config, Username)).
+    ?awaitMatch(0, count_connections_of_user(Config, Username), 60000).
 
 cluster_single_user_connection_and_channel_count(Config) ->
     Username = proplists:get_value(rmq_username, Config),
@@ -796,7 +821,7 @@ single_node_single_user_limit_with(Config, ConnLimit, ChLimit) ->
         end),
 
     close_connections([Conn1, Conn2, Conn3, Conn4, Conn5]),
-    ?assertEqual(0, count_connections_of_user(Config, Username)),
+    ?awaitMatch(0, count_connections_of_user(Config, Username), 60000),
 
     set_user_connection_and_channel_limit(Config, Username,  -1, -1).
 
@@ -843,7 +868,7 @@ single_node_single_user_zero_limit(Config) ->
         end),
 
     close_connections([Conn1, Conn2]),
-    ?assertEqual(0, count_connections_of_user(Config, Username)).
+    ?awaitMatch(0, count_connections_of_user(Config, Username), 60000).
 
 single_node_single_user_clear_limits(Config) ->
     Username = proplists:get_value(rmq_username, Config),
@@ -1153,10 +1178,10 @@ cluster_single_user_limit(Config) ->
     [Chans3, Chans4] = [open_channels(Conn, 5) || Conn <- Conns2],
 
     close_channels(Chans2 ++ Chans3 ++ Chans4),
-    ?assertEqual(0, count_channels_of_user(Config, Username)),
+    ?awaitMatch(0, count_channels_of_user(Config, Username), 60000),
 
     close_connections([Conn2, Conn3, Conn4]),
-    ?assertEqual(0, count_connections_of_user(Config, Username)),
+    ?awaitMatch(0, count_connections_of_user(Config, Username), 60000),
 
     set_user_connection_and_channel_limit(Config, Username,  -1, -1).
 
@@ -1433,11 +1458,11 @@ cluster_multiple_users_zero_limit(Config) ->
     ?assertEqual(false, is_process_alive(ConnA)),
     ?assertEqual(true, is_process_alive(ConnB)),
     close_connections([ConnB]),
-        rabbit_ct_helpers:await_condition(
-        fun () ->
-            count_connections_of_user(Config, Username2) =:= 0 andalso
-            count_channels_of_user(Config, Username2) =:= 0
-        end),
+    rabbit_ct_helpers:await_condition(
+      fun () ->
+              count_connections_of_user(Config, Username2) =:= 0 andalso
+              count_channels_of_user(Config, Username2) =:= 0
+      end),
     ?assertEqual(false, is_process_alive(ConnB)),
 
     set_user_connection_and_channel_limit(Config, Username1, -1, -1),
@@ -1452,12 +1477,12 @@ cluster_multiple_users_zero_limit(Config) ->
     [Chans1, Chans2, Chans3, Chans4] = [open_channels(Conn, 5) || Conn <- Conns1],
 
     close_channels(Chans1 ++ Chans2 ++ Chans3 ++ Chans4),
-    ?assertEqual(0, count_channels_of_user(Config, Username1)),
-    ?assertEqual(0, count_channels_of_user(Config, Username2)),
+    ?awaitMatch(0, count_channels_of_user(Config, Username1), 60000),
+    ?awaitMatch(0, count_channels_of_user(Config, Username2), 60000),
 
     close_connections([Conn1, Conn2, Conn3, Conn4]),
-    ?assertEqual(0, count_connections_of_user(Config, Username1)),
-    ?assertEqual(0, count_connections_of_user(Config, Username2)),
+    ?awaitMatch(0, count_connections_of_user(Config, Username1), 60000),
+    ?awaitMatch(0, count_connections_of_user(Config, Username2), 60000),
 
     set_user_connection_and_channel_limit(Config, Username1, -1, -1),
     set_user_connection_and_channel_limit(Config, Username2, -1, -1).
@@ -1506,9 +1531,9 @@ count_connections_of_user(Config, Username) ->
 count_connections_in(Config, Username, NodeIndex) ->
     count_user_tracked_items(Config, NodeIndex, rabbit_connection_tracking, Username).
 
- count_channels_of_user(Config, Username) ->
-     count_channels_in(Config, Username, 0).
- count_channels_in(Config, Username, NodeIndex) ->
+count_channels_of_user(Config, Username) ->
+    count_channels_in(Config, Username, 0).
+count_channels_in(Config, Username, NodeIndex) ->
     count_user_tracked_items(Config, NodeIndex, rabbit_channel_tracking, Username).
 
 count_user_tracked_items(Config, NodeIndex, TrackingMod, Username) ->
